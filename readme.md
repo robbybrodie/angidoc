@@ -148,7 +148,63 @@ sequenceDiagram
     Secondary->>Primary: System Replication (reversed roles)
 ```
 
-## 3. Scale-Up vs Scale-Out Deployment Scenarios
+## 3. Environment Startup Process
+
+```mermaid
+sequenceDiagram
+    participant OS as Operating System
+    participant Pacemaker as Pacemaker Cluster
+    participant CRM as CRM Resources
+    participant Topology as SAPHanaTopology
+    participant Controller as SAPHanaController
+    participant Filesystem as SAPHanaFilesystem
+    participant HANA as SAP HANA Database
+    
+    Note over OS,HANA: System Boot Sequence
+    
+    OS->>Pacemaker: Start cluster services
+    Pacemaker->>Pacemaker: Initialize cluster
+    
+    Pacemaker->>CRM: Load cluster configuration
+    CRM->>Pacemaker: Register resources
+    
+    par Resource Startup
+        Pacemaker->>Filesystem: Start SAPHanaFilesystem
+        Filesystem->>Filesystem: Mount required filesystems
+        Filesystem->>Pacemaker: Report success
+        
+        Pacemaker->>Topology: Start SAPHanaTopology
+        Topology->>Topology: Initialize topology monitoring
+        Topology->>HANA: Check landscape configuration
+        HANA-->>Topology: Return landscape status
+        Topology->>Pacemaker: Report topology status
+        
+        Pacemaker->>Controller: Start SAPHanaController
+        Controller->>Controller: Initialize controller
+        Controller->>HANA: Check system replication status
+        HANA-->>Controller: Return SR status
+    end
+    
+    alt Primary Site
+        Controller->>HANA: Start as Primary
+        HANA->>HANA: Start database services
+        HANA->>HANA: Enable system replication
+        HANA-->>Controller: Report primary status
+        Controller->>Pacemaker: Report primary role
+    else Secondary Site
+        Controller->>HANA: Start as Secondary
+        HANA->>HANA: Start database services
+        HANA->>HANA: Register with primary
+        HANA-->>Controller: Report secondary status
+        Controller->>Pacemaker: Report secondary role
+    end
+    
+    Pacemaker->>Pacemaker: Update cluster status
+    
+    Note over OS,HANA: Environment Ready
+```
+
+## 4. Scale-Up vs Scale-Out Deployment Scenarios
 
 ```mermaid
 graph TB
@@ -225,6 +281,81 @@ graph TB
 
 ### Cluster Configuration
 - Contains example configurations for Scale-Up and Scale-Out scenarios
+
+## 5. Environment Configuration Process
+
+```mermaid
+flowchart TD
+    Start([Start Configuration]) --> InstallPkg[Install SAPHanaSR-angi Package]
+    InstallPkg --> ConfigHANA[Configure SAP HANA System Replication]
+    ConfigHANA --> ConfigCluster[Configure Pacemaker Cluster]
+    
+    subgraph "SAP HANA Configuration"
+        ConfigHANA --> ConfigPrimary[Configure Primary Node]
+        ConfigPrimary --> EnableSR[Enable System Replication]
+        ConfigPrimary --> ConfigSecondary[Configure Secondary Node]
+        ConfigSecondary --> RegisterSR[Register with Primary]
+    end
+    
+    subgraph "Cluster Configuration"
+        ConfigCluster --> BasicCluster[Configure Basic Cluster]
+        BasicCluster --> AddResources[Add SAP HANA Resources]
+        AddResources --> ConfigConstraints[Configure Constraints]
+        
+        AddResources --> AddTopology[Add SAPHanaTopology]
+        AddResources --> AddController[Add SAPHanaController]
+        AddResources --> AddFilesystem[Add SAPHanaFilesystem]
+    end
+    
+    subgraph "HA/DR Provider Configuration"
+        ConfigHADR[Configure HA/DR Provider] --> EditGlobalIni[Edit global.ini]
+        EditGlobalIni --> AddProvider[Add Provider Configuration]
+        AddProvider --> ConfigHooks[Configure Hook Scripts]
+    end
+    
+    ConfigCluster --> ConfigHADR
+    ConfigHADR --> TestConfig[Test Configuration]
+    TestConfig --> End([Configuration Complete])
+    
+    classDef config fill:#f9f,stroke:#333,stroke-width:1px
+    classDef hana fill:#bbf,stroke:#333,stroke-width:1px
+    classDef cluster fill:#fbb,stroke:#333,stroke-width:1px
+    
+    class InstallPkg,ConfigHADR,TestConfig config
+    class ConfigHANA,ConfigPrimary,EnableSR,ConfigSecondary,RegisterSR hana
+    class ConfigCluster,BasicCluster,AddResources,ConfigConstraints,AddTopology,AddController,AddFilesystem cluster
+```
+
+## Configuration Steps
+
+1. **Install SAPHanaSR-angi Package**
+   - Install the package on all nodes in the cluster
+   - Verify installation by checking the presence of resource agents and tools
+
+2. **Configure SAP HANA System Replication**
+   - Set up primary SAP HANA instance
+   - Enable system replication on primary
+   - Set up secondary SAP HANA instance
+   - Register secondary with primary
+   - Verify system replication status
+
+3. **Configure Pacemaker Cluster**
+   - Set up basic cluster configuration
+   - Add SAPHanaTopology resource
+   - Add SAPHanaController resource (as multi-state resource)
+   - Add SAPHanaFilesystem resource if needed
+   - Configure constraints between resources
+   - Verify cluster configuration
+
+4. **Configure HA/DR Provider**
+   - Edit global.ini to add provider configuration
+   - Configure hook scripts
+   - Verify provider integration
+
+5. **Test Configuration**
+   - Verify normal operation
+   - Test failover scenarios
+   - Validate monitoring tools
 
 ## Deployment Scenarios
 
